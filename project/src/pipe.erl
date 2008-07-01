@@ -9,33 +9,34 @@ new(Opts) ->
 
 new_pipe(Opts) ->
     Receiver = spawn(fun() -> receiver(Opts) end),
-    Sender = spawn(fun() -> sender(Receiver, Opts) end),
-    ok.
+    Processor = spawn(fun() -> processor(Receiver, Opts) end),
+    {Receiver, Processor}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--record(sender, {
+-record(processor, {
                  receiver,
                  body=fun(X) -> X end,
                  outputs=[]
                 }).
 
-sender(Receiver, Opts) ->
-    sender_loop(sender_state(Receiver, Opts)).
+processor(Receiver, Opts) ->
+    Receiver ! {config, processor, self()},
+    processor_loop(processor_state(Receiver, Opts)).
 
-sender_state(Receiver, _Opts) ->
-    #sender{receiver=Receiver}.
+processor_state(Receiver, _Opts) ->
+    #processor{receiver=Receiver}.
 
-sender_loop(#sender{receiver=Receiver,
-                    body=Body,
-                    outputs=Outs}=State)->
+processor_loop(#processor{receiver=_Receiver,
+                    body=_Body,
+                    outputs=_Outs}=State)->
     receive
         {config, Cmd, Args} ->
-            State1 = sender_config(State, Cmd, Args),
-            sender_loop(State1)
+            State1 = processor_config(State, Cmd, Args),
+            processor_loop(State1)
     end.
 
-sender_config(State, _Cmd, _Args) ->
+processor_config(State, _Cmd, _Args) ->
     State.
 
 %%%%%%%%%%%%%%%%
@@ -73,11 +74,11 @@ receiver_loop(#receiver{buffer_size=Size,
                 {data, _Data}=Msg when FReq=/=0 ->
                     hd(Fetch) ! Msg,
                     receiver_loop(State#receiver{fetch_req=FReq-1, fetch=tl(Fetch)});
-                {fetch, Sender} when Size=/=0 ->
-                    Sender ! hd(Buffer),
+                {fetch, processor} when Size=/=0 ->
+                    processor ! hd(Buffer),
                     receiver_loop(State#receiver{buffer=tl(Buffer), buffer_size=Size-1});
-                {fetch, Sender} when Size==0 ->
-                    receiver_loop(State#receiver{fetch_req=FReq+1, fetch=[Fetch|Sender]})
+                {fetch, processor} when Size==0 ->
+                    receiver_loop(State#receiver{fetch_req=FReq+1, fetch=[Fetch|processor]})
             end
     end.
 

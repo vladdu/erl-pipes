@@ -1,31 +1,31 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <diagram>
 <source><![CDATA[upstream:Processor[pe]
-input:Input[ap]
-worker:Worker[r] 
-processor:Processor[ap]
-downstream:Input[pe]
+receiver:Receiver[apr]
+worker:Worker[ar] 
+processor:Processor[apr]
+downstream:Receiver[pe]
 
-input:upstream.start
+receiver:upstream.start
 downstream:processor.start
 
-upstream:input.{data, Input}
-upstream:input.{data, Input}
+upstream:receiver.{data, Input}
+upstream:receiver.{data, Input}
 [c:opt queue full]
-input:upstream.stop
+receiver:upstream.stop
 [/c]
-processor:input.fetch
+processor:receiver.fetch
 [c:opt queue empty]
-input:upstream.start
+receiver:upstream.start
 [/c]
-input:processor.{data, Input}
+receiver:processor.{data, Input}
 processor:worker.{data, Input, State}
 worker:processor.{[Result_1,...,Result_N], NewState}
 processor:downstream.{data, Result_1}
 processor:downstream.{data, Result_N}
 
-processor:input.fetch
-input:processor.{data, Input}
+processor:receiver.fetch
+receiver:processor.{data, Input}
 processor:worker.{data, Input, State}
 worker:processor.{[Result_1,...,Result_K], NewState}
 processor:downstream.{data, Result_1}
@@ -33,16 +33,16 @@ downstream:processor.stop
 downstream:processor.start
 processor:downstream.{data, Result_K}
 
-processor:input.fetch
-upstream:input.{data, Input}
+processor:receiver.fetch
+upstream:receiver.{data, Input}
 processor:worker.{data, Input, State}
 worker:processor.{[Result_1,...,Result_M], NewState}
 processor:downstream.{data, Result_1}
 processor:downstream.{data, Result_M}
 
-upstream:input.end
-processor:input.fetch
-input:processor.end
+upstream:receiver.end
+processor:receiver.fetch
+receiver:processor.end
 processor:downstream.end]]></source>
 <configuration>
 <property name="actorWidth" value="25"/>
