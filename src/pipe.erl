@@ -5,9 +5,6 @@
 %-compile([export_all]).
 
 new(Opts) ->
-    spawn(fun() -> new_pipe(Opts) end).
-
-new_pipe(Opts) ->
     Receiver = spawn(fun() -> receiver(Opts) end),
     Processor = spawn(fun() -> processor(Receiver, Opts) end),
     {Receiver, Processor}.
@@ -15,25 +12,50 @@ new_pipe(Opts) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -record(processor, {
-                 receiver,
-                 body=fun(X) -> X end,
-                 outputs=[]
-                }).
+                    receiver,
+                    body=fun(X, S) -> {X, S} end,
+                    outputs=[],
+                    fetch=false,
+                    results=[]
+                   }).
 
 processor(Receiver, Opts) ->
     Receiver ! {config, processor, self()},
-    processor_loop(processor_state(Receiver, Opts)).
+    processor_stopped(processor_state(Receiver, Opts)).
 
 processor_state(Receiver, _Opts) ->
     #processor{receiver=Receiver}.
 
-processor_loop(#processor{receiver=_Receiver,
-                    body=_Body,
-                    outputs=_Outs}=State)->
+processor_stopped(#processor{}=State)->
     receive
         {config, Cmd, Args} ->
             State1 = processor_config(State, Cmd, Args),
-            processor_loop(State1)
+            processor_stopped(State1);
+        start ->
+            processor_running(State)
+    end.
+
+processor_running(#processor{receiver=Receiver,
+                             body=Body,
+                             outputs=_Outs,
+                             fetch=Fetch}=State)->
+    receive
+        {config, Cmd, Args} ->
+            State1 = processor_config(State, Cmd, Args),
+            processor_running(State1);
+        stop ->
+            processor_stopped(State);
+        {data, Data} ->
+            {Results, State1} = Body(Data, State),
+            processor_send(State1#processor{fetch=false, results=Results})
+    after 1 ->
+            case Fetch of
+                true ->
+                    processor_running(State);
+                false ->
+                    Receiver ! fetch,
+                    processor_running(State#processor{fetch=true})
+            end
     end.
 
 processor_config(State, _Cmd, _Args) ->
@@ -64,7 +86,7 @@ receiver_loop(#receiver{buffer_size=Size,
         true ->
             receiver_hold(State);
         false ->
-			receive
+            receive
                 {config, Cmd, Args} ->
                     State1 = receiver_config(State, Cmd, Args),
                     receiver_loop(State1);
