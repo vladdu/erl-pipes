@@ -1,0 +1,10 @@
+#Sat Jun 28 22:05:29 CEST 2008
+source_dirs=src
+backend_cookie=
+otp_project_structure=true
+backend_name=
+external_includes=
+include_dirs=include
+use_pathz=true
+output_dir=ebin
+external_modules=
