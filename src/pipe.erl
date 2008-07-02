@@ -6,106 +6,116 @@
 
 new(Opts) ->
     Receiver = spawn(fun() -> receiver(Opts) end),
-    Processor = spawn(fun() -> processor(Receiver, Opts) end),
-    {Receiver, Processor}.
+    Worker = spawn(fun() -> worker(Receiver, Opts) end),
+    {Receiver, Worker}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--record(processor, {
-                    receiver,
-                    body=fun(X, S) -> {X, S} end,
-                    outputs=[],
-                    fetch=false,
-                    results=[]
-                   }).
+-record(worker, {
+                 receiver,
+                 body=fun(X, S) -> {X, S} end,
+                 outputs=[],
+                 running=false,
+                 results=[]
+                }).
 
-processor(Receiver, Opts) ->
-    Receiver ! {config, processor, self()},
-    processor_stopped(processor_state(Receiver, Opts)).
+worker(Receiver, Opts) ->
+    Receiver ! {config, worker, self()},
+    worker_loop(worker_state(Receiver, Opts)).
 
-processor_state(Receiver, _Opts) ->
-    #processor{receiver=Receiver}.
+worker_state(Receiver, _Opts) ->
+    #worker{receiver=Receiver}.
 
-processor_stopped(#processor{}=State)->
+worker_loop(#worker{receiver=_Receiver,
+                    body=_Body,
+                    outputs=_Outs,
+                    running=Running}=State)->
+    State2 = case Running of
+                 true ->
+                     execute(State);
+                 false ->
+                     State
+             end,
     receive
         {config, Cmd, Args} ->
-            State1 = processor_config(State, Cmd, Args),
-            processor_stopped(State1);
-        start ->
-            processor_running(State)
-    end.
-
-processor_running(#processor{receiver=Receiver,
-                             body=Body,
-                             outputs=_Outs,
-                             fetch=Fetch}=State)->
-    receive
-        {config, Cmd, Args} ->
-            State1 = processor_config(State, Cmd, Args),
-            processor_running(State1);
+            State1 = worker_config(State2, Cmd, Args),
+            worker_loop(State1);
         stop ->
-            processor_stopped(State);
-        {data, Data} ->
-            {Results, State1} = Body(Data, State),
-            processor_send(State1#processor{fetch=false, results=Results})
-    after 1 ->
-            case Fetch of
-                true ->
-                    processor_running(State);
-                false ->
-                    Receiver ! fetch,
-                    processor_running(State#processor{fetch=true})
-            end
+            worker_loop(State2#worker{running=false});
+        start ->
+            worker_loop(State2#worker{running=true})
     end.
 
-processor_config(State, _Cmd, _Args) ->
+worker_config(State, _Cmd, _Args) ->
+    State.
+
+execute(State) ->
     State.
 
 %%%%%%%%%%%%%%%%
 
 -record(receiver, {
-                   buffer=[],
-                   buffer_size=0,
-                   buffer_max=10,
-                   fetch_req=0,
-                   fetch=[]
+                   buffer_data = [],
+                   stop_limit = 100,
+                   start_limit = 0,
+                   worker
                   }).
+-record(recbuffer, {
+                    pid,
+                    index,
+                    count=0,
+                    running=false
+                   }).
 
 receiver(Opts) ->
     receiver_loop(receiver_state(Opts)).
 
-receiver_state(_Opts) ->
-    #receiver{}.
+get_opt(Name, Opts) ->
+    {value, Val} = lists:keysearch(Name, 1, Opts),
+    Val.
 
-receiver_loop(#receiver{buffer_size=Size,
-                        buffer=Buffer,
-                        buffer_max=Max,
-                        fetch_req=FReq,
-                        fetch=Fetch}=State) ->
-    case  Size > Max of
-        true ->
-            receiver_hold(State);
-        false ->
-            receive
-                {config, Cmd, Args} ->
-                    State1 = receiver_config(State, Cmd, Args),
-                    receiver_loop(State1);
-                {data, _Data}=Msg when FReq==0 ->
-                    Buffer1 = [Buffer | Msg],
-                    receiver_loop(State#receiver{buffer=Buffer1, buffer_size=Size+1});
-                {data, _Data}=Msg when FReq=/=0 ->
-                    hd(Fetch) ! Msg,
-                    receiver_loop(State#receiver{fetch_req=FReq-1, fetch=tl(Fetch)});
-                {fetch, processor} when Size=/=0 ->
-                    processor ! hd(Buffer),
-                    receiver_loop(State#receiver{buffer=tl(Buffer), buffer_size=Size-1});
-                {fetch, processor} when Size==0 ->
-                    receiver_loop(State#receiver{fetch_req=FReq+1, fetch=[Fetch|processor]})
-            end
+receiver_state(Opts) ->
+    BL = get_opt(buffers, Opts),
+    Buffers = lists:duplicate(lists:length(BL), #recbuffer{}),
+    Buffers1 = [R#recbuffer{index=I} || {R, I} <- lists:zip(Buffers, lists:seq(lists:length(Buffers)))],
+    #receiver{
+              buffer_data = Buffers1
+             }.
+
+receiver_loop(#receiver{
+                        buffer_data = Buffers,
+                        start_limit=Start,
+                        stop_limit=Stop,
+                        worker=worker
+                       }=State) ->
+    receive
+        {config, Cmd, Args} ->
+            State1 = receiver_config(State, Cmd, Args),
+            receiver_loop(State1);
+        {data, From, Data} ->
+            {value, B, BRest} = lists:keytake(From, #recbuffer.pid, Buffers),
+            B1 = B#recbuffer{count=B#recbuffer.count+1},
+            worker ! {data, B#recbuffer.index, Data},
+            B2 = case (B#recbuffer.count >= Stop) and (B#recbuffer.running == true) of
+                     true ->
+                         B#recbuffer.pid ! stop,
+                           B1#recbuffer{running=false};
+                     false ->
+                         B1
+                 end,
+            receiver_loop(State#receiver{buffer_data=[B2|BRest]});
+        {fetch, Input} ->
+            {value, B, BRest} = lists:keytake(Input, #recbuffer.index, Buffers),
+            B1 = B#recbuffer{count=B#recbuffer.count-1},
+            B2 = case (B#recbuffer.count =< Start) and (B#recbuffer.running == false) of
+                     true ->
+                         B#recbuffer.pid ! start,
+                           B1#recbuffer{running=true};
+                     false ->
+                         B1
+                 end,
+            receiver_loop(State#receiver{buffer_data=[B2|BRest]})
     end.
-
-receiver_hold(State) ->
-    receiver_loop(State).
 
 receiver_config(State, _Cmd, _Args) ->
     State.
