@@ -1,49 +1,33 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <diagram>
-<source><![CDATA[upstream:Processor[pe]
-receiver:Receiver[apr]
-worker:Worker[ar] 
-processor:Processor[apr]
-downstream:Receiver[pe]
+<source><![CDATA[upstream:Wrapper[pe]
+wrapper:Wrapper[apr]
+worker:Worker[apr]
+downstream:Wrapper[pe]
 
-receiver:upstream.start
-downstream:processor.start
+wrapper:upstream.start
+downstream:wrapper.{start, Output_Y}
 
-upstream:receiver.{data, Input}
-upstream:receiver.{data, Input}
+upstream:wrapper.{data, Data_X}
+wrapper:worker.{data, Input_W, Data_X}
 [c:opt queue full]
-receiver:upstream.stop
+wrapper:upstream.stop
 [/c]
-processor:receiver.fetch
 [c:opt queue empty]
-receiver:upstream.start
+wrapper:upstream.start
 [/c]
-receiver:processor.{data, Input}
-processor:worker.{data, Input, State}
-worker:processor.{[Result_1,...,Result_N], NewState}
-processor:downstream.{data, Result_1}
-processor:downstream.{data, Result_N}
+worker:wrapper.{fetch, Input_W}
+worker:execute!
+worker:wrapper.[Result_Z]
+wrapper:downstream.{data, Output_Y, Result_Z}
 
-processor:receiver.fetch
-receiver:processor.{data, Input}
-processor:worker.{data, Input, State}
-worker:processor.{[Result_1,...,Result_K], NewState}
-processor:downstream.{data, Result_1}
-downstream:processor.stop
-downstream:processor.start
-processor:downstream.{data, Result_K}
+downstream:wrapper.stop
+downstream:wrapper.start
 
-processor:receiver.fetch
-upstream:receiver.{data, Input}
-processor:worker.{data, Input, State}
-worker:processor.{[Result_1,...,Result_M], NewState}
-processor:downstream.{data, Result_1}
-processor:downstream.{data, Result_M}
-
-upstream:receiver.end
-processor:receiver.fetch
-receiver:processor.end
-processor:downstream.end]]></source>
+upstream:wrapper.end
+worker:wrapper.{fetch, Input_W}
+wrapper:worker.end
+wrapper:downstream.end]]></source>
 <configuration>
 <property name="actorWidth" value="25"/>
 <property name="arrowSize" value="6"/>
@@ -77,7 +61,7 @@ processor:downstream.end]]></source>
 <property name="spaceBeforeSelfMessage" value="7"/>
 <property name="subLifelineWidth" value="6"/>
 <property name="threadNumbersVisible" value="false"/>
-<property name="threaded" value="false"/>
+<property name="threaded" value="true"/>
 <property name="upperMargin" value="5"/>
 <property name="verticallySplit" value="true"/>
 </configuration>

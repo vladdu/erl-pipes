@@ -1,4 +1,4 @@
-%% Distributed under the simplified BSD license. See enclosed LICENSE.TXT 
+%% Distributed under the simplified BSD license. See enclosed LICENSE.TXT
 
 -module(pipe).
 
@@ -22,7 +22,8 @@ start_link(Opts) ->
 -record(worker_state, {
                        wrapper,
                        body = fun identity/2,
-                       running = false
+                       running = false,
+                       funstate
                       }).
 
 identity(In, S) ->
@@ -34,57 +35,56 @@ worker(Wrapper, Opts) ->
 worker_state(Wrapper, Opts) ->
     #worker_state{wrapper = Wrapper}.
 
-worker_loop(#worker_state{body = _Body,
+worker_loop(#worker_state{body = Body,
                           running = Running} = State)->
-    State2 = case Running of
+    {Results, FunState2} = case Running of
                  true ->
-                     execute(State);
+                     execute(Body, State#worker_state.funstate);
                  false ->
-                     State
+                     {[], State#worker_state.funstate}
              end,
+	send_results(Results, State),
     receive
         {config, Cmd, Args} ->
             State1 = worker_config(State2, Cmd, Args),
-            worker_loop(State1);
+            worker_loop(State1#{funstate=FunState2});
         stop ->
-            worker_loop(State2#worker_state{running = false});
+            worker_loop(State2#worker_state{running = false, funstate=FunState2});
         start ->
-            worker_loop(State2#worker_state{running = true})
+            worker_loop(State2#worker_state{running = true,funstate=FunState2})
     end.
 
 worker_config(State, _Cmd, _Args) ->
     State.
 
-execute(State) ->
-    %% fetch all required inputs
-    %% do the processing
-    %% send results
-    
-    %% the state should be only what is required for the processing, not everything
-    
-    State.
+%% for now support only simple funs (1 input, 1 output, one item at a time)
+execute(Body, FunState) ->
+    Body(FunState).
 
-fetch_input(InputId) ->
-    receive 
-        {data, InputId, Data} -> 
-            {data, Data}; 
-        {'$end', InputId} -> 
-            '$end' 
+fetch_input(Wrapper, InputId) ->
+	Wrapper ! {fetch, InputId},
+    receive
+        {data, InputId, Data} ->
+            {data, Data};
+        {'$end', InputId} ->
+            '$end'
     end.
 
+send_results(Results, State) ->
+	ok.
 
 %%%%%%%%%%%%%%%%
 
 -record(input, {
                 pid,
-                index,
+                name,
                 count = 0,
                 running = false
                }).
 
 -record(output, {
-                 pid, 
-                 index
+                 pid,
+                 name
                 }).
 
 -record(wrapper_state, {
@@ -92,7 +92,7 @@ fetch_input(InputId) ->
                         stop_limit = 100,
                         start_limit = 1,
                         worker,
-                        
+
                         outputs = [],
                         started = 0
                        }).
@@ -104,32 +104,44 @@ wrapper(Opts) ->
     wrapper_loop(wrapper_state(Worker, Opts)).
 
 wrapper_state(Worker, Opts) ->
-    BL = pipes_util:get_opt(buffers, Opts),
-    Buffers = lists:duplicate(lists:length(BL), #input{}),
-    Buffers1 = [R#input{index = I} || {R, I} <- lists:zip(Buffers, lists:seq(lists:length(Buffers)))],
+    Inputs = fill(Opts, inputs, #input{}),
+    Outputs = fill(Opts, outputs, #output{}),
     #wrapper_state{
-             worker = Worker,
-             inputs = Buffers1
-            }.
+                   worker = Worker,
+                   inputs = Inputs,
+                   outputs = Outputs
+                  }.
+
+fill(Opts, Id, Rec) ->
+    IL = case pipes_util:get_opt(Id, Opts) of
+             {value, L} ->
+                 L;
+             false ->
+                 [default]
+         end,
+    L0 = lists:duplicate(length(IL), Rec),
+    L1 = [setelement(2, R, N) || {R, N} <- lists:zip(L0, IL)],
+    L1.
+
 
 wrapper_loop(#wrapper_state{
-                      inputs = Buffers,
-                      start_limit = Start,
-                      stop_limit = Stop,
-                      worker = Worker,
-                      started = Started,
-                      outputs = Outputs
-                     } = State) ->
+                            inputs = Buffers,
+                            start_limit = Start,
+                            stop_limit = Stop,
+                            worker = Worker,
+                            started = Started,
+                            outputs = Outputs
+                           } = State) ->
     receive
         {config, Cmd, Args} ->
             State1 = wrapper_config(State, Cmd, Args),
             wrapper_loop(State1);
-        
-        %% input 
+
+        %% input
         {data, From, Data} ->
             {value, B, BRest} = lists:keytake(From, #input.pid, Buffers),
             B1 = B#input{count = B#input.count+1},
-            worker ! {data, B#input.index, Data},
+            worker ! {data, B#input.name, Data},
             B2 = case (B#input.count >=  Stop) and (B#input.running ==  true) of
                      true ->
                          B#input.pid ! stop,
@@ -139,7 +151,7 @@ wrapper_loop(#wrapper_state{
                  end,
             wrapper_loop(State#wrapper_state{inputs = [B2|BRest]});
         {fetch, Input} ->
-            {value, B, BRest} = lists:keytake(Input, #input.index, Buffers),
+            {value, B, BRest} = lists:keytake(Input, #input.name, Buffers),
             B1 = B#input{count = B#input.count-1},
             B2 = case (B#input.count  =< Start) and (B#input.running ==  false) of
                      true ->
@@ -149,7 +161,7 @@ wrapper_loop(#wrapper_state{
                          B1
                  end,
             wrapper_loop(State#wrapper_state{inputs = [B2|BRest]});
-        
+
         %%output
         stop ->
             case length(Outputs) of
@@ -165,7 +177,7 @@ wrapper_loop(#wrapper_state{
             wrapper_loop(State#wrapper_state{started = Started+1});
         {result, Results} ->
             Fun = fun({N, RL}) ->
-                            {value, Out} = lists:keysearch(N, #output.index, Outputs),
+                          {value, Out} = lists:keysearch(N, #output.name, Outputs),
                           [Out ! R || R<-RL],
                           ok
                   end,
@@ -174,6 +186,7 @@ wrapper_loop(#wrapper_state{
     end.
 
 wrapper_config(State, _Cmd, _Args) ->
+    io:format(" *** ~p ~p~n", [_Cmd, _Args]),
     State.
 
 
