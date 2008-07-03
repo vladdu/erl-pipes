@@ -1,4 +1,6 @@
--module(pipe_util).
+%% Distributed under the simplified BSD license. See enclosed LICENSE.TXT 
+
+-module(pipes_util).
 
 -compile([export_all]).
 

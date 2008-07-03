@@ -1,3 +1,5 @@
+%% Distributed under the simplified BSD license. See enclosed LICENSE.TXT 
+
 -module(pipe).
 
 -export([
@@ -62,6 +64,15 @@ execute(State) ->
     
     State.
 
+fetch_input(InputId) ->
+    receive 
+        {data, InputId, Data} -> 
+            {data, Data}; 
+        {'$end', InputId} -> 
+            '$end' 
+    end.
+
+
 %%%%%%%%%%%%%%%%
 
 -record(input, {
@@ -93,7 +104,7 @@ wrapper(Opts) ->
     wrapper_loop(wrapper_state(Worker, Opts)).
 
 wrapper_state(Worker, Opts) ->
-    BL = pipe_util:get_opt(buffers, Opts),
+    BL = pipes_util:get_opt(buffers, Opts),
     Buffers = lists:duplicate(lists:length(BL), #input{}),
     Buffers1 = [R#input{index = I} || {R, I} <- lists:zip(Buffers, lists:seq(lists:length(Buffers)))],
     #wrapper_state{
