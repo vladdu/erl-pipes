@@ -19,39 +19,47 @@ start_link(Opts) ->
 %% Implementation
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+-record(funstate, {
+                   body = fun identity/2,
+                   inputs=[],
+                   state
+                   }).
+
 -record(worker_state, {
                        wrapper,
-                       body = fun identity/2,
+                       body = #funstate{},
                        running = false,
                        funstate
                       }).
 
 identity(In, S) ->
-    {In, S, fun identity/2}.
+    {In, S}.
 
 worker(Wrapper, Opts) ->
     worker_loop(worker_state(Wrapper, Opts)).
 
-worker_state(Wrapper, Opts) ->
+worker_state(Wrapper, _Opts) ->
     #worker_state{wrapper = Wrapper}.
 
 worker_loop(#worker_state{body = Body,
                           running = Running} = State)->
-    {Results, FunState2} = case Running of
-                 true ->
-                     execute(Body, State#worker_state.funstate);
-                 false ->
-                     {[], State#worker_state.funstate}
-             end,
-	send_results(Results, State),
     receive
         {config, Cmd, Args} ->
-            State1 = worker_config(State2, Cmd, Args),
-            worker_loop(State1#{funstate=FunState2});
+            State1 = worker_config(State, Cmd, Args),
+            worker_loop(State1);
         stop ->
-            worker_loop(State2#worker_state{running = false, funstate=FunState2});
+            worker_loop(State#worker_state{running = false});
         start ->
-            worker_loop(State2#worker_state{running = true,funstate=FunState2})
+            worker_loop(State#worker_state{running = true})
+    after 0 ->
+            {Results, FunState2} = case Running of
+                                       true ->
+                                           execute(Body, State#worker_state.funstate);
+                                       false ->
+                                           {[], State#worker_state.funstate}
+                                   end,
+            send_results(Results, State),
+            worker_loop(State#worker_state{funstate=FunState2})
     end.
 
 worker_config(State, _Cmd, _Args) ->
@@ -62,7 +70,7 @@ execute(Body, FunState) ->
     Body(FunState).
 
 fetch_input(Wrapper, InputId) ->
-	Wrapper ! {fetch, InputId},
+    Wrapper ! {fetch, InputId},
     receive
         {data, InputId, Data} ->
             {data, Data};
@@ -70,8 +78,8 @@ fetch_input(Wrapper, InputId) ->
             '$end'
     end.
 
-send_results(Results, State) ->
-	ok.
+send_results(_Results, _State) ->
+    ok.
 
 %%%%%%%%%%%%%%%%
 
@@ -92,7 +100,7 @@ send_results(Results, State) ->
                         stop_limit = 100,
                         start_limit = 1,
                         worker,
-
+                        
                         outputs = [],
                         started = 0
                        }).
@@ -136,7 +144,7 @@ wrapper_loop(#wrapper_state{
         {config, Cmd, Args} ->
             State1 = wrapper_config(State, Cmd, Args),
             wrapper_loop(State1);
-
+        
         %% input
         {data, From, Data} ->
             {value, B, BRest} = lists:keytake(From, #input.pid, Buffers),
@@ -161,7 +169,7 @@ wrapper_loop(#wrapper_state{
                          B1
                  end,
             wrapper_loop(State#wrapper_state{inputs = [B2|BRest]});
-
+        
         %%output
         stop ->
             case length(Outputs) of
