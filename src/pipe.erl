@@ -19,29 +19,22 @@ start_link(Opts) ->
 %% Implementation
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--record(funstate, {
-                   body = fun identity/2,
-                   inputs=[],
-                   state
-                   }).
+-include("pipes.hrl").
 
 -record(worker_state, {
                        wrapper,
-                       body = #funstate{},
-                       running = false,
-                       funstate
+                       funstate = #funstate{},
+                       running = false
                       }).
-
-identity(In, S) ->
-    {In, S}.
 
 worker(Wrapper, Opts) ->
     worker_loop(worker_state(Wrapper, Opts)).
 
-worker_state(Wrapper, _Opts) ->
-    #worker_state{wrapper = Wrapper}.
+worker_state(Wrapper, Opts) ->
+    Body = pipes_util:get_opt(body, Opts),
+    #worker_state{wrapper = Wrapper, funstate=Body}.
 
-worker_loop(#worker_state{body = Body,
+worker_loop(#worker_state{funstate = Body,
                           running = Running} = State)->
     receive
         {config, Cmd, Args} ->
@@ -54,7 +47,7 @@ worker_loop(#worker_state{body = Body,
     after 0 ->
             {Results, FunState2} = case Running of
                                        true ->
-                                           execute(Body, State#worker_state.funstate);
+                                           execute(Body);
                                        false ->
                                            {[], State#worker_state.funstate}
                                    end,
@@ -62,23 +55,39 @@ worker_loop(#worker_state{body = Body,
             worker_loop(State#worker_state{funstate=FunState2})
     end.
 
+worker_config(State, body, Body) ->
+    State#worker_state{funstate=Body};
 worker_config(State, _Cmd, _Args) ->
     State.
 
-%% for now support only simple funs (1 input, 1 output, one item at a time)
-execute(Body, FunState) ->
-    Body(FunState).
+execute(#funstate{body=Body, inputs=Ins, state=State}) ->
+    InData = get_inputs(Ins),
+    Body(InData, State).
 
-fetch_input(Wrapper, InputId) ->
-    Wrapper ! {fetch, InputId},
+%% use this in your pipe function to get input data
+fetch_input(InputId) ->
     receive
-        {data, InputId, Data} ->
-            {data, Data};
-        {'$end', InputId} ->
-            '$end'
+        {InputId, Data} ->
+            Data
     end.
 
-send_results(_Results, _State) ->
+get_inputs(Ins) when is_list(Ins) ->
+    lists:map(fun get_input/1, Ins).
+
+get_input(In) when is_atom(In) ->
+    {In, fetch_input(In)};
+get_input({In, N}) ->
+    {In, get_input(In, N, [])}.
+
+get_input(_In, 0, Res) ->
+    lists:reverse(Res);
+get_input(In, N, Res) ->
+    get_input(In, N-1, [fetch_input(In)|Res]).
+
+send_results([], _) ->
+    ok;
+send_results(Results, #worker_state{wrapper=Wrapper}) ->
+    Wrapper ! Results,
     ok.
 
 %%%%%%%%%%%%%%%%

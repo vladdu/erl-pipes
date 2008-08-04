@@ -1,7 +1,7 @@
-#Sat Jun 28 22:05:29 CEST 2008
+#Mon Aug 04 16:27:54 CEST 2008
 source_dirs=src
 backend_cookie=
-otp_project_structure=true
+otp_project_structure=false
 backend_name=
 external_includes=
 include_dirs=include
