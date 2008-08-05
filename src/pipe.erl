@@ -19,6 +19,9 @@ start_link(Opts) ->
 %% Implementation
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+
+%%% worker %%%
+
 -include("pipes.hrl").
 
 -record(worker_state, {
@@ -34,6 +37,8 @@ worker_state(Wrapper, Opts) ->
     FunState = pipes_util:get_opt(funstate, Opts),
     #worker_state{wrapper = Wrapper, funstate = FunState}.
 
+worker_loop(#worker_state{funstate=#funstate{finished=true}})->
+    ok;
 worker_loop(#worker_state{funstate = FunState,
                           running = Running,
                           wrapper = Wrapper} = State)->
@@ -62,9 +67,9 @@ worker_config(State, _Cmd, _Args) ->
 
 execute(#funstate{body=Body, inputs=Ins, state=State}, Wrapper) ->
     InData = get_inputs(Ins),
-    {Results, NewState} = Body(InData, State),
+    {Results, NewFunState} = Body(InData, State),
     send_results(Results, Wrapper),
-    NewState.
+    NewFunState.
 
 %% use this in your pipe function to get input data
 fetch_input(InputId) ->
@@ -93,6 +98,7 @@ send_results(Results, Wrapper) ->
     ok.
 
 %%%%%%%%%%%%%%%%
+%%% wrapper %%%
 
 -record(input, {
                 pid,

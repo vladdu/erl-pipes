@@ -7,3 +7,7 @@
 get_opt(Name, Opts) ->
     lists:keysearch(Name, 1, Opts).
 
+finished(end_data, State) ->
+    finished;
+finished(_, State) ->
+    State.

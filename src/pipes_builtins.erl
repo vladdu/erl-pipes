@@ -7,37 +7,34 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% do nothing
 null() ->
-    Fun = fun(State) ->
-                  {[], State}
-          end,
-    #funstate{body=Fun}.
+    #funstate{body=fun null_fun/2}.
+
+null_fun([{stdin, end_data}], _State) ->
+    finished;
+null_fun(_Ins, _State) ->
+    {[], #funstate{body=fun null_fun/2}}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% pass on whatever is input
-identity(Ins) ->
-    Fun = fun(#funstate{inputs=In}=S) ->
-                  Out = lists:map(fun(Id) -> pipe:fetch_input(Id) end, In),
-                  {Out, S}
-          end,
-    #funstate{body=Fun, inputs=Ins}.
-
 identity() ->
-    identity(stdin).
+    #funstate{body=fun identity_fun/2}.
+
+identity_fun([{stdin, In}], _State) ->
+    {[{stdout, [In]}], pipes_util:finished(In, #funstate{body=fun identity_fun/2})}.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% print to the console
 print(Fmt) ->
-    Fun = fun(State) ->
-                  X = pipe:fetch_input(stdin),            
-                  io:format(Fmt, [X]),
-                  {[], State}
-          end,
-    #funstate{body=Fun}.
-
+    #funstate{body=fun print_fun/2, state=Fmt}.
 
 print() ->
     print("~p~n").
+
+print_fun([{stdin, X}], State) ->
+    io:format(State, [X]),
+    {[], pipes_util:finished(X, #funstate{body=fun print_fun/2, state=State})}.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% read binary stream from a file
@@ -64,24 +61,20 @@ print() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% get input from a list
 list_in(L) when is_list(L) ->
-    Fun = fun(#funstate{state = []}=S) ->
-                  {[{stdout, [end_data]}], S};
-             (#funstate{state = [H|T]}=S) ->
-                  {[{stdout, [H]}], S#funstate{state=T}}
-          end,
-    #funstate{body=Fun, state=L}.
+    #funstate{body=fun list_in_fun/2, state=L}.
+
+list_in_fun(_Ins, []) ->
+    {[{stdout, [end_data]}], finished};
+list_in_fun(_Ins, [H|T]) ->
+    {[{stdout, [{data, H}]}], #funstate{body=fun list_in_fun/2, state=T}}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% gathers all results into a list
 list_out() ->
-    Fun = fun(#funstate{state=List}=State) ->
-                  X = pipe:fetch_input(stdin),            
-                  case X of
-                      end_data ->
-                          {[{stdout, lists:reverse(List)},{stdout, end_data}], State};
-                      _ ->
-                          {[], State#funstate{state=[X|List]}}
-                  end
-          end,
-    #funstate{body=Fun, state=[]}.
+    #funstate{body=fun list_out_fun/2, state=[]}.
+
+list_out_fun([{stdin, end_data}], List) ->
+    {[{stdout, [{data, lists:reverse(List)}, end_data]}], finished};
+list_out_fun([{stdin, In}], List) ->
+    {[], #funstate{body=fun list_out_fun/2, state=[In|List]}}.
 
