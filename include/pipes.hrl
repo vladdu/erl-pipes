@@ -1,5 +1,6 @@
 
 -record(pipe, {
+               name,
                inputs = [default],
                outputs = [default],
                context

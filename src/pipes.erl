@@ -20,12 +20,16 @@ new(Pipe) when is_record(Pipe, pipe) ->
 new(Fun, Opts) ->
     new([{body, wrap_simple_fun(Fun)}|[Opts|default_opts()]]).
 
-connect({Name1, Pid1}, {Name2, Pid2}) ->
-    Pid1 ! {output, Name2, Pid2},
-    Pid2 ! {input, Name1, Pid1},
+connect({Pid1, Name1}, {Pid2, Name2}) ->
+    Pid1 ! {output, Name1, Pid2},
+    Pid2 ! {input, Name2, Pid1},
     ok;
-connect(Pipe1, Pipe2) ->
-    connect({default, Pipe1}, {default, Pipe2}).
+connect({Pid1, Name1}, Pid2) ->
+    connect({Pid1, Name1}, {Pid2, default});
+connect(Pid1, {Pid2, Name2}) ->
+    connect({Pid1, default}, {Pid2, Name2});
+connect(Pid1, Pid2) ->
+    connect({Pid1, default}, {Pid2, default}).
 
 wrap_simple_fun(Fun) ->
     Fun.
@@ -35,16 +39,15 @@ default_opts() ->
 
 get_result(Pipe) ->
     Pipe ! {output, default, self()},
+    Pipe ! start,
     receive
-        Data -> %% {data, default, Data} ->
+        {data, _, {data, Data}} ->
             Data
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%5
 
 test() ->
-    dbg:stop(),
-    dbg:start(),
     %%Log="log.log",
     %%Fun2 = dbg:trace_port(file, Log),
     %%{ok, TPid} = dbg:tracer(port, Fun2),
@@ -56,23 +59,23 @@ test1() ->
     dbg:tp(pipe, []),
     dbg:tp(pipes_builtins, []),
     dbg:tp(pipes_util, []),
-    %%     dbg:tpl(pipes, []),
-    %%     dbg:tpl(pipe, []),
-    %%     dbg:tpl(pipes_builtins, []),
-    %%     dbg:tpl(pipes_util, []),
-    dbg:p(self(), [p, c, sos]),
+    %% dbg:tpl(pipes, []),
+    % dbg:tpl(pipe, []),
+    %% dbg:tpl(pipes_builtins, []),
+    %% dbg:tpl(pipes_util, []),
+    dbg:p(self(), [m, c, p, sos]),
     
-    P1 = new(pipes_builtins:list_in([1, 2, 3])),
-    P = new(pipes_builtins:identity()), 
-    P2 = new(pipes_builtins:list_out()),
+    P1 = new(pipes_builtins:from_list([1, 2, 3])),
+    P2 = new(pipes_builtins:identity()), 
+    P3 = new(pipes_builtins:to_list()),
+    P4 = new(pipes_builtins:print()),
+    P5 = new(pipes_builtins:fan_out([o1, o2])),
     
-    io:format("~p~n", [{P1, P, P2}]),
-    
-    connect(P1, P),
-    connect(P, P2),
-    
-    dbg:stop(),
-    
-    R = get_result(P2),
+    connect(P1, P2),
+    connect(P2, P5),
+    connect({P5, o1}, P3),
+    connect({P5, o2}, P4),
+   
+    R = get_result(P3),
     io:format("**** Result: ~p~n", [R]),
     R.

@@ -12,25 +12,26 @@ null() ->
     #context{body=fun null_fun/2}.
 
 null_fun([{default, end_data}], _State) ->
-    finished;
+    #context{finished=true};
 null_fun(_Ins, _State) ->
     {[], #context{body=fun null_fun/2}}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% pass on whatever is input
 identity() ->
-    #pipe{context = #context{body=fun identity_fun/2}}.
+    #pipe{name = identity, 
+          context = #context{body=fun identity_fun/2}}.
 
 identity_fun([{default, end_data}], _State) ->
     {[{default, [end_data]}], #context{finished=true}};
 identity_fun([{default, In}], _State) ->
     {[{default, [In]}], #context{body=fun identity_fun/2}}.
 
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% print to the console
 print(Fmt) ->
-    #context{body=fun print_fun/2, state=Fmt}.
+    #pipe{name = print,
+          context = #context{body=fun print_fun/2, state=Fmt}}.
 
 print() ->
     print("~p~n").
@@ -42,7 +43,7 @@ print_fun([{default, X}], State) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% read binary stream from a file
-%% binfile_in(FileName, Options) ->
+%% bcat(FileName, Options) ->
 %%     fun(_X, init) ->
 %%             {ok, File} = file:open(FileName, [read_ahead, raw, binary | Options]),
 %%             {[], File};
@@ -58,28 +59,45 @@ print_fun([{default, X}], State) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% read Erlang terms from a file
-%% erl_file_in(FileName) ->
+%% ecat(FileName) ->
 %%     {ok, Terms} = file:consult(FileName),
-%%     list_in(Terms).
+%%     from_list(Terms).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% get input from a list
-list_in(L) when is_list(L) ->
-    #pipe{inputs = [], 
-          context = #context{body=fun list_in_fun/2, state=L, inputs=[]}}.
+from_list(L) when is_list(L) ->
+    #pipe{name = from_list,
+          inputs = [], 
+          context = #context{body=fun from_list_fun/2, state=L, inputs=[]}}.
 
-list_in_fun(_Ins, []) ->
+from_list_fun(_Ins, []) ->
     {[{default, [end_data]}], #context{finished=true}};
-list_in_fun(_Ins, [H|T]) ->
-    {[{default, [{data, self(), H}]}], #context{body=fun list_in_fun/2, state=T, inputs=[]}}.
+from_list_fun(_Ins, [H|T]) ->
+    {[{default, [{data, H}]}], #context{body=fun from_list_fun/2, state=T, inputs=[]}}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% gathers all results into a list
-list_out() ->
-    #pipe{context = #context{body=fun list_out_fun/2, state=[]}}.
+to_list() ->
+    #pipe{name = to_list,
+          context = #context{body=fun to_list_fun/2, state=[]}}.
 
-list_out_fun([{default, end_data}], List) ->
-    {[{default, [{data, lists:reverse(List)}, end_data]}], finished};
-list_out_fun([{default, In}], List) ->
-    {[], #context{body=fun list_out_fun/2, state=[In|List]}}.
+to_list_fun([{default, end_data}], List) ->
+    {[{default, [{data, lists:reverse(List)}, end_data]}], #context{finished=true}};
+to_list_fun([{default, {data, In}}], List) ->
+    {[], #context{body=fun to_list_fun/2, state=[In|List]}}.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% fan out
+fan_out(Outs) ->
+    #pipe{name = fan_out,
+          outputs = Outs,
+          context = #context{body=fun fan_out_fun/2, state=Outs}}.
+
+fan_out_fun([{default, In}], Outs) ->
+    Out = [{X, [In]} || X <- Outs],
+    Fin = (In==end_data),
+    {Out, #context{body=fun fan_out_fun/2, finished=Fin, state=Outs}}.
+
+  
+  
+  

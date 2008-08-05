@@ -37,10 +37,18 @@ worker_loop(#worker{context = #context{finished = true},
     %% we're done
     Wrapper ! finished,
     ok;
+worker_loop(#worker{running = false} = State)->
+    receive
+        start ->
+            worker_loop(State#worker{running = true})
+    end;
 worker_loop(#worker{context = Context,
                     running = Running,
                     wrapper = Wrapper} = State)->
     receive
+        timeout ->
+            io:format("timeout?~n"),
+            worker_loop(State);
         stop ->
             worker_loop(State#worker{running = false});
         start ->
@@ -56,20 +64,22 @@ worker_loop(#worker{context = Context,
     end.
 
 execute(#context{body=Body, inputs=Ins, state=State}=_Ctx, Wrapper) ->
-    io:format("~p execute1 ~p~n", [self(), _Ctx]),
+    %%%%io:format("###~p execute1 ~p~n", [self(), _Ctx]),
     InData = get_inputs(Wrapper, Ins),
-    io:format("~p execute2 ~p~n", [self(), {Ins, InData, State}]),
+    %%io:format("###~p execute2 ~p~n", [self(), {Ins, InData, State}]),
     {Results, New_context} = Body(InData, State),
+    %%io:format("###~p execute3 ~p~n", [self(), {Results, New_context}]),
     send_results(Results, Wrapper),
+    %%io:format("###~p execute4 ~p~n", [self(), Wrapper]),
     New_context.
 
 get_inputs(Wrapper, Ins) when is_list(Ins) ->
     lists:map(fun(X) -> get_input(Wrapper, X) end, Ins).
 
-get_input(Wrapper, In) when is_atom(In) ->
-    {In, fetch_input(Wrapper, In)};
 get_input(Wrapper, {In, N}) ->
-    {In, get_input(Wrapper, In, N, [])}.
+    {In, get_input(Wrapper, In, N, [])};
+get_input(Wrapper, In) ->
+    {In, fetch_input(Wrapper, In)}.
 
 get_input(_Wrapper, _In, 0, Res) ->
     lists:reverse(Res);
@@ -80,9 +90,7 @@ fetch_input(Wrapper, InputId) ->
     receive
         {InputId, Data} ->
             Wrapper ! {used, InputId},
-            Data;
-        Msg ->
-            io:format("!!! ~p ~p~n", [self(), Msg])
+            Data
     end.
 
 send_results([], _) ->
@@ -97,6 +105,7 @@ send_results(Results, Wrapper) ->
 -record(wrapper, {
                   connected = false,
                   worker,
+                  finished = false,
                   
                   inputs = [],
                   stop_limit = 100,
@@ -120,8 +129,14 @@ send_results(Results, Wrapper) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-wrapper(Pipe) ->
-    Worker = spawn_link(fun() -> worker(self(), Pipe#pipe.context) end),
+wrapper(#pipe{name=Name}=Pipe) ->
+    Self = self(),
+    Worker = spawn_link(fun() ->     
+                                register(Name, Self),
+                                worker(Self, Pipe#pipe.context) 
+                        end),
+    register(list_to_atom(atom_to_list(Name)++"_worker"), Worker),
+    %%io:format("~p -> ~p ~n", [Self, Worker]),
     wrapper_loop(wrapper_state(Worker, Pipe)).
 
 wrapper_state(Worker, #pipe{inputs=Ins, outputs=Outs}) ->
@@ -173,8 +188,8 @@ wrapper_loop(#wrapper{
         {data, From, Data} ->
             {value, B, BRest} = lists:keytake(From, #input.pid, Inputs),
             B1 = B#input{messages = B#input.messages+1},
-            worker ! {B#input.name, Data},
-            B2 = case (B#input.messages >=  Stop) and (B#input.running ==  true) of
+            Worker ! {B#input.name, Data},
+            B2 = case (B#input.messages >=  Stop) and (B#input.running == true) of
                      true ->
                          B#input.pid ! stop,
                          B1#input{running = false};
@@ -185,7 +200,7 @@ wrapper_loop(#wrapper{
         {used, Input} ->
             {value, B, BRest} = lists:keytake(Input, #input.name, Inputs),
             B1 = B#input{messages = B#input.messages-1},
-            B2 = case (B#input.messages  =< Start) and (B#input.running ==  false) of
+            B2 = case (B#input.messages  =< Start) and (B#input.running == false) of
                      true ->
                          B#input.pid ! start,
                          B1#input{running = true};
@@ -198,26 +213,53 @@ wrapper_loop(#wrapper{
         {result, Results} ->
             Fun = fun({N, RL}) ->
                           {value, Out} = lists:keysearch(N, #output.name, Outputs),
-                          [Out#output.pid ! {data, self(), R} || R<-RL],
+                          Fun = fun({data, R}) -> Out#output.pid ! {data, self(), {data, R}};
+                                   (end_data) -> Out#output.pid ! {data, self(), end_data}
+                                end,
+                          lists:foreach(Fun, RL),
                           ok
                   end,
             lists:foreach(Fun, Results),
             wrapper_loop(State);
+        finished ->
+            wrapper_cleanup(State#wrapper{finished=true});
         
         %% flow control (out)
-        stop -> %%??
+        stop -> 
             case length(Outputs) of
                 Started ->
-                    Worker ! stop
+                    Worker ! stop;
+                _ ->
+                    ok
             end,
             wrapper_loop(State#wrapper{started = Started-1});
-        start -> %%??
+        start -> 
             case length(Outputs)-1 of
                 Started ->
-                    Worker ! start
+                    Worker ! start;
+                _ ->
+                    ok
             end,
-            wrapper_loop(State#wrapper{started = Started+1})
+            wrapper_loop(State#wrapper{started = Started+1});
+        
+        Msg ->
+            io:format("wrapper ~p got unknown ~p~n", [self(), Msg]),
+            wrapper_loop(State)
     
+    end.
+
+wrapper_cleanup(#wrapper{outputs=Outputs}=State) ->
+    receive 
+        {result, Results} ->
+            Fun = fun({N, RL}) ->
+                          {value, Out} = lists:keysearch(N, #output.name, Outputs),
+                          [Out#output.pid ! {data, self(), R} || {data, R}<-RL],
+                          ok
+                  end,
+            lists:foreach(Fun, Results),
+            wrapper_cleanup(State)
+    after 100 ->
+            ok
     end.
 
 fix_input(#input{name=Name}=X, Name, Pid) ->
@@ -233,5 +275,6 @@ fix_output(X, _Name, _Pid) ->
 all_connected(#wrapper{inputs=Ins, outputs=Outs}) ->
     AllIns = lists:all(fun(#input{pid=Pid}) -> is_pid(Pid) end, Ins),    
     AllOuts = lists:all(fun(#output{pid=Pid}) -> is_pid(Pid) end, Outs),
+    %%io:format("%% ~p ~p ~p = ~p~n", [self(), AllIns, AllOuts, AllIns and AllOuts]),
     AllIns and AllOuts.
 
