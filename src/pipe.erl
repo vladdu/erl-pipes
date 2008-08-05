@@ -31,11 +31,12 @@ worker(Wrapper, Opts) ->
     worker_loop(worker_state(Wrapper, Opts)).
 
 worker_state(Wrapper, Opts) ->
-    Body = pipes_util:get_opt(body, Opts),
-    #worker_state{wrapper = Wrapper, funstate=Body}.
+    FunState = pipes_util:get_opt(funstate, Opts),
+    #worker_state{wrapper = Wrapper, funstate = FunState}.
 
-worker_loop(#worker_state{funstate = Body,
-                          running = Running} = State)->
+worker_loop(#worker_state{funstate = FunState,
+                          running = Running,
+                          wrapper = Wrapper} = State)->
     receive
         {config, Cmd, Args} ->
             State1 = worker_config(State, Cmd, Args),
@@ -45,24 +46,25 @@ worker_loop(#worker_state{funstate = Body,
         start ->
             worker_loop(State#worker_state{running = true})
     after 0 ->
-            {Results, FunState2} = case Running of
-                                       true ->
-                                           execute(Body);
-                                       false ->
-                                           {[], State#worker_state.funstate}
-                                   end,
-            send_results(Results, State),
-            worker_loop(State#worker_state{funstate=FunState2})
+            FunState2 = case Running of
+                            true ->
+                                execute(FunState, Wrapper);
+                            false ->
+                                State#worker_state.funstate
+                        end,
+            worker_loop(State#worker_state{funstate = FunState2})
     end.
 
-worker_config(State, body, Body) ->
-    State#worker_state{funstate=Body};
+worker_config(State, funstate, FunState) ->
+    State#worker_state{funstate=FunState};
 worker_config(State, _Cmd, _Args) ->
     State.
 
-execute(#funstate{body=Body, inputs=Ins, state=State}) ->
+execute(#funstate{body=Body, inputs=Ins, state=State}, Wrapper) ->
     InData = get_inputs(Ins),
-    Body(InData, State).
+    {Results, NewState} = Body(InData, State),
+    send_results(Results, Wrapper),
+    NewState.
 
 %% use this in your pipe function to get input data
 fetch_input(InputId) ->
@@ -86,8 +88,8 @@ get_input(In, N, Res) ->
 
 send_results([], _) ->
     ok;
-send_results(Results, #worker_state{wrapper=Wrapper}) ->
-    Wrapper ! Results,
+send_results(Results, Wrapper) ->
+    Wrapper ! {results, Results},
     ok.
 
 %%%%%%%%%%%%%%%%
@@ -162,7 +164,7 @@ wrapper_loop(#wrapper_state{
             B2 = case (B#input.count >=  Stop) and (B#input.running ==  true) of
                      true ->
                          B#input.pid ! stop,
-                           B1#input{running = false};
+                         B1#input{running = false};
                      false ->
                          B1
                  end,
@@ -173,7 +175,7 @@ wrapper_loop(#wrapper_state{
             B2 = case (B#input.count  =< Start) and (B#input.running ==  false) of
                      true ->
                          B#input.pid ! start,
-                           B1#input{running = true};
+                         B1#input{running = true};
                      false ->
                          B1
                  end,
