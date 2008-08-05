@@ -4,10 +4,12 @@
 
 -compile([export_all]).
 
+-include("pipes.hrl").
+
 get_opt(Name, Opts) ->
     lists:keysearch(Name, 1, Opts).
 
 finished(end_data, State) ->
-    finished;
+    State#context{finished=true};
 finished(_, State) ->
     State.

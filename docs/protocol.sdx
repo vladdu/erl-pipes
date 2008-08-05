@@ -1,33 +1,34 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <diagram>
-<source><![CDATA[upstream:Wrapper[pe]
+<source><![CDATA[downstream:Wrapper[pe]
+upstream:Wrapper[pe]
 wrapper:Wrapper[apr]
 worker:Worker[apr]
-downstream:Wrapper[pe]
 
 wrapper:upstream.start
 downstream:wrapper.{start, Output_Y}
 
 upstream:wrapper.{data, Data_X}
-wrapper:worker.{data, Input_W, Data_X}
 [c:opt queue full]
 wrapper:upstream.stop
-[/c]
-[c:opt queue empty]
+--- queue empty
 wrapper:upstream.start
 [/c]
-worker:wrapper.{fetch, Input_W}
+
+wrapper:worker.{data, Input_W, Data_X}
 worker:execute!
-worker:wrapper.[Result_Z]
-wrapper:downstream.{data, Output_Y, Result_Z}
+worker:wrapper.{Output_Y, [Result_Z]}
+wrapper:downstream.{data, Output_Y, [Result_Z]}
 
 downstream:wrapper.stop
+wrapper:worker.stop
 downstream:wrapper.start
+wrapper:worker.start
 
-upstream:wrapper.end
-worker:wrapper.{fetch, Input_W}
-wrapper:worker.end
-wrapper:downstream.end]]></source>
+[c:ending]
+worker:wrapper.finished
+wrapper:downstream.end_data
+[/c]]]></source>
 <configuration>
 <property name="actorWidth" value="25"/>
 <property name="arrowSize" value="6"/>
@@ -61,7 +62,7 @@ wrapper:downstream.end]]></source>
 <property name="spaceBeforeSelfMessage" value="7"/>
 <property name="subLifelineWidth" value="6"/>
 <property name="threadNumbersVisible" value="false"/>
-<property name="threaded" value="true"/>
+<property name="threaded" value="false"/>
 <property name="upperMargin" value="5"/>
 <property name="verticallySplit" value="true"/>
 </configuration>
