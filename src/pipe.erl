@@ -26,7 +26,7 @@ start_link(Pipe) when is_record(Pipe, pipe) ->
 -record(worker, {
                  wrapper,
                  context=#context{},
-                 running = false
+                 running = true
                 }).
 
 worker(Wrapper, Context) ->
@@ -47,7 +47,7 @@ worker_loop(#worker{context = Context,
                     wrapper = Wrapper} = State)->
     receive
         timeout ->
-            io:format("timeout?~n"),
+            io:format("@@@@ ~p got timeout ?!~n", [self()]),
             worker_loop(State);
         stop ->
             worker_loop(State#worker{running = false});
@@ -64,13 +64,9 @@ worker_loop(#worker{context = Context,
     end.
 
 execute(#context{body=Body, inputs=Ins, state=State}=_Ctx, Wrapper) ->
-    %%%%io:format("###~p execute1 ~p~n", [self(), _Ctx]),
     InData = get_inputs(Wrapper, Ins),
-    %%io:format("###~p execute2 ~p~n", [self(), {Ins, InData, State}]),
     {Results, New_context} = Body(InData, State),
-    %%io:format("###~p execute3 ~p~n", [self(), {Results, New_context}]),
     send_results(Results, Wrapper),
-    %%io:format("###~p execute4 ~p~n", [self(), Wrapper]),
     New_context.
 
 get_inputs(Wrapper, Ins) when is_list(Ins) ->
@@ -129,14 +125,13 @@ send_results(Results, Wrapper) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-wrapper(#pipe{name=Name}=Pipe) ->
+wrapper(#pipe{name=_Name}=Pipe) ->
     Self = self(),
     Worker = spawn_link(fun() ->     
-                                register(Name, Self),
+                                %%register(_Name, Self),
                                 worker(Self, Pipe#pipe.context) 
                         end),
-    register(list_to_atom(atom_to_list(Name)++"_worker"), Worker),
-    %%io:format("~p -> ~p ~n", [Self, Worker]),
+    %%register(list_to_atom(atom_to_list(_Name)++"_worker"), Worker),
     wrapper_loop(wrapper_state(Worker, Pipe)).
 
 wrapper_state(Worker, #pipe{inputs=Ins, outputs=Outs}) ->
@@ -213,9 +208,7 @@ wrapper_loop(#wrapper{
         {result, Results} ->
             Fun = fun({N, RL}) ->
                           {value, Out} = lists:keysearch(N, #output.name, Outputs),
-                          Fun = fun({data, R}) -> Out#output.pid ! {data, self(), {data, R}};
-                                   (end_data) -> Out#output.pid ! {data, self(), end_data}
-                                end,
+                          Fun = fun(R) -> Out#output.pid ! {data, self(), R} end,
                           lists:foreach(Fun, RL),
                           ok
                   end,
@@ -243,7 +236,7 @@ wrapper_loop(#wrapper{
             wrapper_loop(State#wrapper{started = Started+1});
         
         Msg ->
-            io:format("wrapper ~p got unknown ~p~n", [self(), Msg]),
+            io:format("@@@@ wrapper ~p got unknown ~p~n", [self(), Msg]),
             wrapper_loop(State)
     
     end.

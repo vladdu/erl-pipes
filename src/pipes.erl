@@ -4,9 +4,10 @@
 
 -export([
          new/1,
-         new/2,
+         connect/1,
          connect/2,
-         wrap_simple_fun/1,
+         weld/2,
+         
          get_result/1,
          
          test/0
@@ -16,9 +17,6 @@
 
 new(Pipe) when is_record(Pipe, pipe) ->
     pipe:start_link(Pipe).
-
-new(Fun, Opts) ->
-    new([{body, wrap_simple_fun(Fun)}|[Opts|default_opts()]]).
 
 connect({Pid1, Name1}, {Pid2, Name2}) ->
     Pid1 ! {output, Name1, Pid2},
@@ -31,11 +29,18 @@ connect(Pid1, {Pid2, Name2}) ->
 connect(Pid1, Pid2) ->
     connect({Pid1, default}, {Pid2, default}).
 
-wrap_simple_fun(Fun) ->
-    Fun.
+connect([H|T]) ->
+    connect_trunk(T, H, H).
 
-default_opts() ->
-    [].
+weld(P1, P2) ->
+    connect(P1, P2),
+    {P1, P2}.
+
+connect_trunk([], Pid1, Pid2) ->
+    {Pid1, Pid2};
+connect_trunk([H|T], P1, P2) ->
+    connect(P2, H),
+    connect_trunk(T, P1, H).
 
 get_result(Pipe) ->
     Pipe ! {output, default, self()},
@@ -48,34 +53,33 @@ get_result(Pipe) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%5
 
 test() ->
-    %%Log="log.log",
-    %%Fun2 = dbg:trace_port(file, Log),
-    %%{ok, TPid} = dbg:tracer(port, Fun2),
-    dbg:tracer(),
-    spawn(fun test1/0).
+    spawn(fun test1/0),
+    spawn(fun test2/0).
 
 test1() ->
-    dbg:tp(pipes, []),
-    dbg:tp(pipe, []),
-    dbg:tp(pipes_builtins, []),
-    dbg:tp(pipes_util, []),
-    %% dbg:tpl(pipes, []),
-    % dbg:tpl(pipe, []),
-    %% dbg:tpl(pipes_builtins, []),
-    %% dbg:tpl(pipes_util, []),
-    dbg:p(self(), [m, c, p, sos]),
-    
-    P1 = new(pipes_builtins:from_list([1, 2, 3])),
-    P2 = new(pipes_builtins:identity()), 
+    P1 = new(pipes_builtins:bcat("../src/pipes_util.erl", 128)),
+    %% you might want to use the platform's line endings here
+    P4 = new(pipes_builtins:bsplit(<<"\r\n">>)),
+    P5 = new(pipes_builtins:fan_out([default, counter])),
     P3 = new(pipes_builtins:to_list()),
-    P4 = new(pipes_builtins:print()),
-    P5 = new(pipes_builtins:fan_out([o1, o2])),
+    C = new(pipes_builtins:count()),
+
+    connect([P1, P4, P5, P3]),
+    connect({P5, counter}, C),
     
-    connect(P1, P2),
-    connect(P2, P5),
-    connect({P5, o1}, P3),
-    connect({P5, o2}, P4),
-   
     R = get_result(P3),
-    io:format("**** Result: ~p~n", [R]),
-    R.
+    io:format("**** Result: ~p: ~p~n", [length(R), R]),
+    N = get_result(C),
+    io:format("**** Count: ~p~n", [N]),
+    ok.
+
+test2() ->
+    P1 = new(pipes_builtins:from_list([1,2,3,4,5])),
+    P2 = new(pipes_builtins:map(fun(X) -> X+$A end)),
+    P3 = new(pipes_builtins:to_list()),
+    
+    connect([P1, P2, P3]),
+    
+    R = get_result(P3),
+    io:format("**** Result: ~p: ~p~n", [length(R), R]),
+    ok.
