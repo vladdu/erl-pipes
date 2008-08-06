@@ -1,8 +1,8 @@
 
 -record(pipe, {
                name,
-               inputs = [default],
-               outputs = [default],
+               inputs = [stdin],
+               outputs = [stdout],
                context
               }).
 
@@ -10,7 +10,7 @@
 -record(context, {
                    finished = false,
                    body,
-                   inputs=[default],
+                   inputs=[stdin],
                    state
                    }).
 

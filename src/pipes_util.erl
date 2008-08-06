@@ -9,7 +9,14 @@
 get_opt(Name, Opts) ->
     lists:keysearch(Name, 1, Opts).
 
-finished(end_data, State) ->
-    State#context{finished=true};
-finished(_, State) ->
-    State.
+wrap(Fun) ->
+    fun([{stdin, D}], #context{state=SS}=S0) ->
+            {R, S, Fin} = Fun(D, SS),
+            R1 = [{stdout, R}],
+            {R1, S0#context{state=S, finished=Fin}};
+       (_, #context{state=SS}=S0) ->
+            {R, S, Fin} = Fun(ok, SS),
+            R1 = [{stdout, [X]} || X<-R],
+            {R1, S0#context{state=S, finished=Fin}}
+    end.
+

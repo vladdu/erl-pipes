@@ -63,9 +63,9 @@ worker_loop(#worker{context = Context,
             worker_loop(State#worker{context = Context2})
     end.
 
-execute(#context{body=Body, inputs=Ins, state=State}=_Ctx, Wrapper) ->
+execute(#context{body=Body, inputs=Ins}=Ctx, Wrapper) ->
     InData = get_inputs(Wrapper, Ins),
-    {Results, New_context} = Body(InData, State),
+    {Results, New_context} = Body(InData, Ctx),
     send_results(Results, Wrapper),
     New_context.
 
