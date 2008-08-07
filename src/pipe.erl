@@ -105,7 +105,7 @@ send_results(Results, Wrapper) ->
                   
                   inputs = [],
                   stop_limit = 100,
-                  start_limit = 1,
+                  start_limit = 10,
                   
                   outputs = [],
                   started = 0
@@ -206,7 +206,9 @@ wrapper_loop(#wrapper{
         
         %%output
         {result, Results} ->
-            Fun = fun({N, RL}) ->
+            Fun = fun({_N, []}) ->
+                          ok;
+                     ({N, RL}) ->
                           {value, Out} = lists:keysearch(N, #output.name, Outputs),
                           Fun = fun(R) -> Out#output.pid ! {data, self(), R} end,
                           lists:foreach(Fun, RL),

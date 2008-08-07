@@ -15,7 +15,9 @@
          zipwith/2,
          zip/0,
          zip/1,
+         partition/1,
          
+%%          from_list/0,
          from_list/1,
          to_list/0,
          
@@ -142,7 +144,7 @@ print_fun(X, Fmt) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% read binary stream from a file
 bcat(FileName) ->
-    bcat(FileName, 1024).
+    bcat(FileName, 8192).
 
 bcat(FileName, ChunkSize) ->
     {ok, File} = file:open(FileName, [read_ahead, binary]),
@@ -164,7 +166,7 @@ bcat_fun(_, {File, ChunkSize}=State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% read list stream from a file
 cat(FileName) ->
-    cat(FileName, 1024).
+    cat(FileName, 8192).
 
 cat(FileName, ChunkSize) ->
     {ok, File} = file:open(FileName, [read_ahead]),
@@ -288,16 +290,26 @@ ecat(FileName) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% get input from a list
 from_list(L) when is_list(L) ->
-    #pipe{name = from_list,
+    #pipe{name = from_list_1,
           inputs = [], 
           context = #context{body = pipes_util:wrap(fun from_list_fun/2), 
                              state = L, 
                              inputs = []}}.
 
+%% from_list() ->
+%%     #pipe{name = from_list_0,
+%%           context = #context{body = fun from_list0_fun/2, 
+%%                              state = []}}.
+
 from_list_fun(_, []) ->
     {[end_data], [], true};
 from_list_fun(_, [H|T]) ->
     {[{data, H}], T, false}.
+
+%% from_list0_fun([{stdin, end_data}], S) ->
+%%     {[], S};
+%% from_list0_fun([{stdin, {data, L}}], S) ->
+%%     {[], S#context{state = L}}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% gathers all results into a list
@@ -331,7 +343,7 @@ count() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% grep
 grep(Expr) ->
-    filter(fun(X) -> regexp:first_match(X, Expr) =/= nomatch end).
+    partition(fun(X) -> regexp:first_match(X, Expr) =/= nomatch end).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% zip
@@ -386,6 +398,22 @@ zipwith_fun(Inputs, #context{state=Fun}=State) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% partition
+partition(Fun) ->
+    #pipe{name = partition, 
+          outputs=[stdout, nomatch],
+          context = #context{body = fun partition_fun/2, 
+                             state = Fun}}.
+
+partition_fun([{stdin, end_data}], State) ->
+    {[{stdout, [end_data]}, {nomatch, [end_data]}], State#context{finished=true}};
+partition_fun([{stdin, {data, In}}], #context{state=Fun}=State) ->
+    case Fun(In) of
+        true ->
+            {[{stdout, [{data, In}]}], State};
+        false ->
+            {[{nomatch, [{data, In}]}], State}
+    end.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% reverse
 
