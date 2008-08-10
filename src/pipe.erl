@@ -46,9 +46,6 @@ worker_loop(#worker{context = Context,
                     running = Running,
                     wrapper = Wrapper} = State)->
     receive
-        timeout ->
-            io:format("@@@@ ~p got timeout ?!~n", [self()]),
-            worker_loop(State);
         stop ->
             worker_loop(State#worker{running = false});
         start ->
