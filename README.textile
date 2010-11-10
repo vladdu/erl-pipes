@@ -1,0 +1,31 @@
+An implementation of [[Hartmann pipelines|http://en.wikipedia.org/wiki/Hartmann_pipeline]] in Erlang. In short, they are extensions of the usual Unix pipes that allow building graphs of programs and thus one can implement a full data-flow environment.
+
+Code example with current API, counting the number of lines in a file containing "=" and the number of lines that don't contain it:
+```erlang
+    P1 = pipes:pipe(cat, [FileName]),
+    P2 = pipes:pipe(lines),
+    P4 = pipes:pipe(grep, ["="]),
+    P3 = pipes:pipe(count),
+    P5 = pipes:pipe(count),
+    
+    pipes:connect([P1, P2, P4, P3]),
+    pipes:connect({P4, nomatch}, P5),
+    
+    {WithEquals, WithoutEquals} = {pipes:get_result(P3), pipes:get_result(P5)}.
+```
+
+This will look in the future similar to the Unix-ish
+```erlang
+    {WithEquals, WithoutEquals} = pipes:build(
+      " cat $FileName | 
+        lines | 
+        g: grep \"=\" |
+        count > $1
+      ",
+      " :g/nomatch |
+        count > $2
+      "
+    ).
+```
+
+Read more in the [[Overview]].
