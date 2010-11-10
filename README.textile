@@ -1,7 +1,12 @@
-An implementation of [[Hartmann pipelines|http://en.wikipedia.org/wiki/Hartmann_pipeline]] in Erlang. In short, they are extensions of the usual Unix pipes that allow building graphs of programs and thus one can implement a full data-flow environment.
+An implementation of "Hartmann pipelines":http://en.wikipedia.org/wiki/Hartmann_pipeline in Erlang. In short, they are extensions of the usual Unix pipes that allow building graphs of programs and thus one can implement a full data-flow environment.
+
+Read more in the "wiki":http://github.com/vladdu/erl-pipes/wiki.
+
+h2. Examples
 
 Code example with current API, counting the number of lines in a file containing "=" and the number of lines that don't contain it:
-```erlang
+
+<pre>
     P1 = pipes:pipe(cat, [FileName]),
     P2 = pipes:pipe(lines),
     P4 = pipes:pipe(grep, ["="]),
@@ -12,10 +17,11 @@ Code example with current API, counting the number of lines in a file containing
     pipes:connect({P4, nomatch}, P5),
     
     {WithEquals, WithoutEquals} = {pipes:get_result(P3), pipes:get_result(P5)}.
-```
+</pre>
 
 This will look in the future similar to the Unix-ish
-```erlang
+
+<pre>
     {WithEquals, WithoutEquals} = pipes:build(
       " cat $FileName | 
         lines | 
@@ -26,6 +32,5 @@ This will look in the future similar to the Unix-ish
         count > $2
       "
     ).
-```
+</pre>
 
-Read more in the [[Overview]].
